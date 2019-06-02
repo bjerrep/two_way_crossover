@@ -15,20 +15,20 @@ Implementing the design requirements in software rather than hardware means that
 
 ## Get started
 
-1 Fire up a linux computer with a sound card
-2 Install alsa, gstreamer and python 3 if they are not already available
-3 Clone the software
-4 Run the python script
+1. Fire up a linux computer with a sound card
+2. Install alsa, gstreamer and python 3 if they are not already available
+3. Clone the software
+4. Run the python script
 
 You now have a single channel digital-analog crossover filter thanks to gstreamer. Default crossover at 2kHz (8'th order 0.25dB ripple Chebyshew) and a 6 dB boost at 59 Hz. Bass in left channel and treble in right channel. A stereo filter will be easy to add in the code and will require an extra sound card since 4 outputs will be needed in total.
 
 ## Get started notes
 
-1 Only Arch Linux have been tested but there is no reason to believe that other distroes will misbehave. If using a USB sound card then get one with a real line-in input, assuming that the setup should be based on line signals in the first place. The average headset dongles have mic-in and can be used for testing but most doesn't really belong in a setup like this.
-2 If using a Pi Zero then a network connection is -very- nice while setting up the filter.
+1. Only Arch Linux have been tested but there is no reason to believe that other distroes will misbehave. If using a USB sound card then get one with a real line-in input, assuming that the setup should be based on line signals in the first place. The average headset dongles have mic-in and can be used for testing but most doesn't really belong in a setup like this.
+2. If using a Pi Zero then a network connection is -very- nice while setting up the filter.
 Some example fire and forget install commands are pending..
-3 Make a git clone
-4 Execute
+3. Make a git clone
+4. Execute
 
     $python two_way_crossover.py
     
