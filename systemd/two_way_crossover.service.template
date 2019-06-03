@@ -1,0 +1,14 @@
+[Unit]
+Description=two way crossover
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=<path>
+ExecStart=/usr/bin/python <path>/two_way_crossover.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
