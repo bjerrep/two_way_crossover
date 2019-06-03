@@ -22,16 +22,18 @@ def construct_pipeline():
     The alsa devices 'hw:0' are the default sound card, adjust them to the correct sound card
     if needed (run 'aplay -l' to see available sound cards).
     """
-    input = ('alsasrc device=hw:2 ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
-             'queue ! deinterleave name=d ')
+    input = ('alsasrc device=hw:0 ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
+             'queue ! ')
+
+    # pick which of the two input channels to play (src_0 or src_1) if part of a stereo setup
+    channel = 'deinterleave name=d d.src_0 ! tee name=t0 '
+    # or if a stereo signal should be mixed to mono
+    # channel = 'audioconvert ! audio/x-raw,channels=1 ! deinterleave name=d d.src_0 ! tee name=t0 '
 
     output = ('interleave name=i0 ! capssetter caps = audio/x-raw,channels=2,channel-mask=0x3 ! '
               'audioconvert ! audioresample ! queue ! '
-              'volume name=master_vol volume=0.001 ! '
-              'alsasink device=hw:2 sync=true buffer-time=100 ')
-
-    # pick which of the two input channels to play
-    tee = 'd.src_0 ! tee name=t0 '
+              'volume name=master_vol volume=0.01 ! '
+              'alsasink device=hw:0 sync=true buffer-time=10 ')
 
     low = ('t0.src_0 ! queue ! '
            'equalizer-10bands name=equalizer band0=0.0 band1=6.0 band2=0.0 ! ' 
@@ -41,7 +43,7 @@ def construct_pipeline():
     high = ('t0.src_1 ! queue ! audiocheblimit name=high_xover poles=8 mode=high-pass cutoff=2000.0 ! '
             'volume name=high_vol volume=1.0 ! i0.sink_1 ')
 
-    launch = input + output + tee + low + high
+    launch = input + channel + output + low + high
 
     pipeline = Gst.parse_launch(launch)
 

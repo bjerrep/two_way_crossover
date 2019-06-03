@@ -1,7 +1,7 @@
 {
   "volume" : 0.01,
   "low_frequency": 2000.0,
-  "low_volume": 0.0,
+  "low_volume": 1.0,
   "low_order": 8,
   "low_eq_29Hz" : 0.0,
   "low_eq_59Hz" : 6.0,
