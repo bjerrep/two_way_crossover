@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from enum import Enum
 import threading
 import time
 import gi
@@ -8,42 +9,71 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
 Gst.init(None)
+parameter_file = 'two_way_crossover.json'
 current_parameters = {}
 
 
-def construct_pipeline():
+class Configuration(Enum):
+    LEFT = 0
+    RIGHT = 1
+    MONO = 2
+    STEREO = 3
+
+
+def construct_pipeline(configuration):
     """
-    Launch the gstreamer pipeline for a mono two way crossover.
+    Launch the gstreamer pipeline according to the choosen configuration (from configuration file).
     For a bass lift only the low 3 bands of the standard 10 band equalizer are exposed here.
     This should probably have been a 6 dB/oct shelving filter or something equally exotic
     but that will be another day.
-    Also note that there are a total of 3 volume controls to aid when playing around, just
-    remove them if they are not needed.
-    The alsa devices 'hw:0' are the default sound card, adjust them to the correct sound card
-    if needed (run 'aplay -l' to see available sound cards).
+    Also note that there are a total of 3 volume controls per channel to aid when playing
+    around, they should probably just be removed.
     """
-    input = ('alsasrc device=hw:0 ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
-             'queue ! ')
 
-    # pick which of the two input channels to play (src_0 or src_1) if part of a stereo setup
-    channel = 'deinterleave name=d d.src_0 ! tee name=t0 '
-    # or if a stereo signal should be mixed to mono
-    # channel = 'audioconvert ! audio/x-raw,channels=1 ! deinterleave name=d d.src_0 ! tee name=t0 '
+    # Alsa device selection
+    # The first entry is used the single output modes: left only, right only and mono.
+    # The the second entry is the second output alsa device used when running in stereo mode.
+    alsa_devices = ['hw:0', 'hw:1']
 
-    output = ('interleave name=i0 ! capssetter caps = audio/x-raw,channels=2,channel-mask=0x3 ! '
-              'audioconvert ! audioresample ! queue ! '
-              'volume name=master_vol volume=0.01 ! '
-              'alsasink device=hw:0 sync=true buffer-time=10 ')
+    # Input Alsa device is always the first entry in the alsa_devices above.
+    input = (f'alsasrc device={alsa_devices[0]} ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
+             f'queue ! ')
 
-    low = ('t0.src_0 ! queue ! '
-           'equalizer-10bands name=equalizer band0=0.0 band1=6.0 band2=0.0 ! ' 
-           'audiocheblimit name=low_xover poles=8 mode=low-pass cutoff=2000.0 ! '
-           'volume name=low_vol volume=1.0 ! i0.sink_0 ')
+    if configuration in (Configuration.LEFT, Configuration.RIGHT):
+        # pick which of the two input channels to play (src_0 or src_1) if part of a stereo setup
+        channel = f'deinterleave name=d d.src_{configuration.value} ! tee name=t{configuration.value} '
+        paths = [configuration.value]
+        alsa_devices = [alsa_devices[0]] * 2
 
-    high = ('t0.src_1 ! queue ! audiocheblimit name=high_xover poles=8 mode=high-pass cutoff=2000.0 ! '
-            'volume name=high_vol volume=1.0 ! i0.sink_1 ')
+    elif configuration == Configuration.MONO:
+        # stereo signal mixed to mono
+        channel = 'audioconvert ! audio/x-raw,channels=1 ! deinterleave name=d d.src_0 ! tee name=t0 '
+        paths = [Configuration.LEFT.value]
 
-    launch = input + channel + output + low + high
+    else:
+        # stereo
+        channel = 'deinterleave name=d d.src_0 ! tee name=t0 d.src_1 ! tee name=t1 '
+        paths = [Configuration.LEFT.value, Configuration.RIGHT.value]
+
+    launch = input + channel
+
+    for path in paths:
+
+        launch += (f'interleave name=i{path} ! capssetter caps = audio/x-raw,channels=2,channel-mask=0x3 ! '
+                   f'audioconvert ! audioresample ! queue ! '
+                   f'volume name=master_vol{path} volume=0.01 ! '
+                   f'alsasink device={alsa_devices[path]} sync=true buffer-time=10 ')
+
+        launch += (f't{path}.src_0 ! queue ! '
+                   f'equalizer-10bands name=equalizer{path} band0=0.0 band1=6.0 band2=0.0 ! ' 
+                   f'audiocheblimit name=low_xover{path} poles=8 mode=low-pass cutoff=2000.0 ! '
+                   f'volume name=low_vol{path} volume=1.0 ! i{path}.sink_0 ')
+
+        launch += (f't{path}.src_1 ! queue ! audiocheblimit name=high_xover{path} poles=8 mode=high-pass cutoff=2000.0 ! '
+                   f'volume name=high_vol{path} volume=1.0 ! i{path}.sink_1 ')
+
+    # The printed launch line can be used directly with the gst-launch tool for testing on the command line
+    # print(launch)
 
     pipeline = Gst.parse_launch(launch)
 
@@ -63,36 +93,45 @@ def reload(parameters):
     print('reloading parameters')
     modified = dict(parameters.items() - current_parameters.items())
     for key, value in sorted(modified.items()):
-        print(f' - setting {key} to {value}')
+        for path in [Configuration.LEFT.value, Configuration.RIGHT.value]:
+            try:
+                # Common output volume
+                if key == 'volume':
+                    gst_pipeline.get_by_name(f'master_vol{path}').set_property('volume', value)
 
-        # Common output volume
-        if key == 'volume':
-            gst_pipeline.get_by_name('master_vol').set_property('volume', value)
+                # Bass crossover, equalizer and volume.
+                elif key == 'low_frequency':
+                    gst_pipeline.get_by_name(f'low_xover{path}').set_property('cutoff', value)
+                elif key == 'low_order':
+                    gst_pipeline.get_by_name(f'low_xover{path}').set_property('poles', value)
+                elif key == 'low_volume':
+                    gst_pipeline.get_by_name(f'low_vol{path}').set_property('volume', value)
+                elif key == 'low_eq_29Hz':
+                    gst_pipeline.get_by_name(f'equalizer{path}').set_property('band0', value)
+                elif key == 'low_eq_59Hz':
+                    gst_pipeline.get_by_name(f'equalizer{path}').set_property('band1', value)
+                elif key == 'low_eq_119Hz':
+                    gst_pipeline.get_by_name(f'equalizer{path}').set_property('band2', value)
 
-        # Bass crossover, equalizer and volume.
-        elif key == 'low_frequency':
-            gst_pipeline.get_by_name('low_xover').set_property('cutoff', value)
-        elif key == 'low_order':
-            gst_pipeline.get_by_name('low_xover').set_property('poles', value)
-        elif key == 'low_volume':
-            gst_pipeline.get_by_name('low_vol').set_property('volume', value)
-        elif key == 'low_eq_29Hz':
-            gst_pipeline.get_by_name('equalizer').set_property('band0', value)
-        elif key == 'low_eq_59Hz':
-            gst_pipeline.get_by_name('equalizer').set_property('band1', value)
-        elif key == 'low_eq_119Hz':
-            gst_pipeline.get_by_name('equalizer').set_property('band2', value)
+                # Treble crossover and volume
+                elif key == 'high_frequency':
+                    gst_pipeline.get_by_name(f'high_xover{path}').set_property('cutoff', value)
+                elif key == 'high_order':
+                    gst_pipeline.get_by_name(f'high_xover{path}').set_property('poles', value)
+                elif key == 'high_volume':
+                    gst_pipeline.get_by_name(f'high_vol{path}').set_property('volume', value)
+                elif key == 'configuration':
+                    if current_parameters:
+                        print(' - if that was a configuration mode change then please restart the script')
+                    continue
+                else:
+                    print(f' - error, unknown key {key}')
+                    continue
 
-        # Treble crossover and volume
-        elif key == 'high_frequency':
-            gst_pipeline.get_by_name('high_xover').set_property('cutoff', value)
-        elif key == 'high_order':
-            gst_pipeline.get_by_name('high_xover').set_property('poles', value)
-        elif key == 'high_volume':
-            gst_pipeline.get_by_name('high_vol').set_property('volume', value)
+                print(f' - setting {key} (channel {path}) to {value}')
 
-        else:
-            print(f' - error, unknown key {key}')
+            except AttributeError:
+                pass
 
     current_parameters = parameters
 
@@ -101,18 +140,25 @@ def parameter_file_watcher():
     """
     Dynamically reloads the parameter file whenever its modified time changes
     """
-    parameter_file = 'two_way_crossover.json'
-    mtime = None
-    while True:
-        _ = os.path.getmtime(parameter_file)
-        if _ != mtime:
-            mtime = _
-            with open(parameter_file) as f:
-                reload(json.loads(f.read()))
-        time.sleep(1)
+    try:
+
+        mtime = None
+        while True:
+            _ = os.path.getmtime(parameter_file)
+            if _ != mtime:
+                mtime = _
+                with open(parameter_file) as f:
+                    reload(json.loads(f.read()))
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print(' killed')
+        exit(1)
 
 
-gst_pipeline = construct_pipeline()
+with open(parameter_file) as f:
+    conf = json.loads(f.read())['configuration']
+    print(f'Two way crossover is starting as \'{conf}\'')
+    gst_pipeline = construct_pipeline(Configuration[conf.upper()])
 
 parameter_file_watcher_thread = threading.Thread(target=parameter_file_watcher)
 parameter_file_watcher_thread.run()

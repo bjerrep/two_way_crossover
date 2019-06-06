@@ -1,14 +1,16 @@
+# how to make the symlink to systemd
+# ln -s <path>/systemd/two_way_crossover.service /etc/systemd/system
+#
+# Please note that this is insanely unsecure and it should only be
+# used on devices without a network connection. Alternatively get the user and
+# permissions right.
+
 [Unit]
 Description=two way crossover
-Wants=network-online.target
-After=network-online.target
 
 [Service]
 Type=simple
-User=<user>
+User=root
 WorkingDirectory=<path>
 ExecStart=/usr/bin/python <path>/two_way_crossover.py
 Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
