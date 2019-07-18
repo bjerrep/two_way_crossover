@@ -13,4 +13,8 @@ Type=simple
 User=root
 WorkingDirectory=<path>
 ExecStart=/usr/bin/python <path>/two_way_crossover.py
+
+# helper script for RPI 1B.
+# ExecStartPost=<path>/systemd/rpi_1B_boot.sh
+
 Restart=on-failure

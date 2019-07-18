@@ -17,16 +17,18 @@ Please be aware that this project currently is to be considered slightly unstabl
 
 | computer 	| status                                  	|
 |----------	|-----------------------------------------	|
-| x86      	| works                                   	|
+| x86      	| works except for 'stereo_40' (*)         |
 | RPI 3B+  	| works                                   	|
-| RPI 1B+  	| only noise with Arch                    	|
+| RPI 1B  	| works (*)                 |
 | Zero     	| not tested (same but faster cpu as 1B+) 	|
+
+(*) - see performance appendix further down
 
 
 ## Get started
 
 1. Fire up a linux computer with a sound card
-2. Install alsa, gstreamer and python 3 if they are not already available
+2. Install alsa, gstreamer and python 3.6+ if they are not already available
 3. Clone the software
 4. Run the python script
 
@@ -35,30 +37,68 @@ You now have a single channel digital-analog crossover filter thanks to gstreame
 ## Get started notes
 
 1. Only Arch Linux have been tested but there is no reason to believe that other distroes will misbehave. If using a USB sound card then get one with a real line-in input, assuming that the setup should be based on line signals in the first place. The average headset dongles have mic-in and can be used for testing but most doesn't really belong in a setup like this.
-2. Fire and forget install lines
+2. Fire and forget install lines. (Python stuff must be 3.6 or newer)
 
     Arch : git gstreamer gst-plugins-good gst-plugins-base alsa alsa-tools alsa-utils gst-python
+
+Brings in about 480MByte of storage use on a fresh Arch install.
 
 3. Make a git clone
 4. Execute
 
     $python two_way_crossover.py
 
-Woofer signal will be in left output, tweeter in right output. The script uses the default alsa devices ('hw:0'), use 'aplay -l' to verify if e.g. a USB soundcard is device 1 or larger and modify the script accordingly.
+Woofer signal will be in left output, tweeter in right output. The script uses the default alsa device, alternatively run 'aplay -l' to get the correct Alsa device id and modify the script accordingly.
 
 There is a template for a systemd service file in ./systemd that might be of help in case the script should start at boot time.
 
 # Get tweaking
 
-The central adjustable parameters are found in the configuration file two_way_crossover.json. 
+The overall configuration can be set to 'left', 'right', 'mono', 'stereo' or 'stereo_40'. The plain 'stereo' mode is using two separate soundcards for left and right and the 'stereo_40' mode is using two outputs on a single 5.1 or 7.1 soundcard for left and right. 'stereo_40' might need some tweaking of the gstreamer pipeline. The current values matches a logilink UA0099 soundcard where channel 5 & 6 plays in the 'surround' channel on the UA0099. Whatever the mode gstreamer/Alsa seems to get it right and there is no need to e.g. use surround profiles in .asoundrc.
 
-The overall configuration can be set to 'left', 'right', 'mono' or 'stereo'. The configuration file is automatically reloaded and applied when modified (except for the configuration value), there is no reason to restart the python script as long as it is only the numeric values that are changed. 
+The mode and the central adjustable parameters are found in the configuration file two_way_crossover.json. The configuration file is automatically reloaded and applied when modified (except for mode changes). There is no reason to restart the python script as long as it is only the numeric values that are changed.
 
-Here is an image of what a stereo crossover filter with a RPI 3B+ could look like :
+Here is an image of what a 'stereo' crossover filter with a RPI 3B+ could look like. Since it is using two 5.1 soundcards the picture was taken before there was a 'stereo_40' mode which could have driven a stereo setup with just a single 5.1 soundcard...
 
 <p align="center"><img src="images/stereo.jpg"></p>
 
+
+# Caveats
+
+Running alongside pulseaudio has not been tried so it is not known if that might be problematic. It might be that the script could have trouble connecting to Alsa if there is some device locking going on ?
+
 Feel free to use the issue tracker for rants and questions and pull requests for fixes and any nice stuff.
+
+# Appendix : USB/Audio Performance
+
+**x86**
+
+Outputting 4 channels to a single 5.1 soundcard in 'stereo_40' mode doesn't seem to work on x86 like it does for the raspberry pi boards, the current channelmasks seems to fail. This havent been investigated further.
+
+**RPI**
+
+Performance issues ranges from pure noise output (RPI 1B in standard configuration) to occasional ticks. Following is an accumulated list of tweaks tried. Most likely one or more could be removed without having any noticable effect and the killer tweak might still waiting for someone to find it. 
+
+The complete list is what is used for the RPI 1B including the script [rpi_1B_boot.sh](systemd/rpi_1B_boot.sh) in ./systemd.
+
+**1** Increase the alsasink buffertime from the default 10000 us. RPI 1B currently uses 100000 which means that there is a noticable audio latency where the RPI 3B+ can run with as low as 100 us.
+
+**2** Overclock to the limit and maybe beyond in /boot/config.txt. This is for the RPI 1B.
+
+    force_turbo=1
+    over_voltage=4
+    arm_freq=900
+    core_freq=500
+    sdram_freq=400
+
+**3** Add dwc_otg.speed=1 to /boot/cmdline.txt. Forces USB to run at a fixed 12Mb/sec.
+
+**4** Turn off systemd-journald writing to disk. Storage=none in /etc/systemd/journald.conf. Disable haveged now we are at it with systemctl disable haveged.
+
+**5** Run the script with realtime priority. 
+
+\# chrt --rr 99 /usr/bin/python <path\>/two_way_crossover.py
+
 
 
 # Links
