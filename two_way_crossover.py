@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from enum import Enum
-import threading, time, gi, os, json
+import threading, time, gi, os, json, signal
 
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
@@ -8,6 +8,18 @@ from gi.repository import GLib, Gst
 Gst.init(None)
 parameter_file = 'two_way_crossover.json'
 current_parameters = {}
+verbose = False
+
+gst_pipeline = None
+
+woofer_protect_threshold = None
+woofer_protect_attenuation_db_x10 = 0.0
+
+loudness_low_threshold = None
+loudness_high_threshold = None
+loudness_x20 = 20
+
+NS_IN_SEC = 1000000000
 
 
 class Configuration(Enum):
@@ -18,7 +30,70 @@ class Configuration(Enum):
     STEREO_40 = 4  # single 5.1/7.1 sound card using front and rear stereo outputs
 
 
-def construct_pipeline(configuration):
+eq = ['low_eq_29Hz', 'low_eq_59Hz', 'low_eq_119Hz']
+
+
+def eq_adjust():
+    global gst_pipeline
+    values = ''
+
+    for band in range(3):
+        max = current_parameters[eq[band]]
+        min = -6.0
+        gain_dB = (max - min) * (loudness_x20 / 20.0) + min
+        gain_dB -= woofer_protect_attenuation_db_x10 / 10.0
+        if gain_dB < -24.0:
+            gain_dB = -24.0
+
+        try:
+            for path in range(2):
+                gst_pipeline.get_by_name(f'equalizer{path}').set_property(f'band{band}', gain_dB)
+                if not path:
+                    values += f'{gain_dB:.2f} '
+        except:
+            pass
+
+    if verbose:
+        print((f'equalizer adjusted to {values} (loudness {100.0 * loudness_x20 / 20.0}%, '
+               f'protect {woofer_protect_attenuation_db_x10 / 10.0}dB)'))
+
+
+def bus_message(bus, message):
+    global woofer_protect_attenuation_db_x10, loudness_x20
+    try:
+        if message.has_name('level'):
+            s = message.get_structure()
+            max_level = -96.0
+            for level in s['decay']:
+                if level > max_level:
+                    max_level = level
+
+            if message.src.get_name().startswith('woofer_protect'):
+                exceed_x10 = int((max_level - woofer_protect_threshold) * 10.0)
+                if exceed_x10 < 0:
+                    exceed_x10 = 0
+
+                if exceed_x10 != woofer_protect_attenuation_db_x10:
+                    woofer_protect_attenuation_db_x10 = exceed_x10
+                    eq_adjust()
+
+            elif message.src.get_name() == 'loudness':
+                loudness_range = loudness_high_threshold - loudness_low_threshold
+                if max_level < loudness_low_threshold:
+                    loud = 20
+                elif max_level > loudness_high_threshold:
+                    loud = 0
+                else:
+                    loud = int(20.0 * (loudness_high_threshold - max_level) / loudness_range)
+                if loud != loudness_x20:
+                    loudness_x20 = loud
+                    eq_adjust()
+
+    except Exception as e:
+        print(str(e))
+
+
+def construct_pipeline(parameters):
     """
     Launch the gstreamer pipeline according to the choosen configuration (from configuration file).
     Bass lift adjustment is made with the low 3 bands of the standard 10 band equalizer which is
@@ -27,17 +102,29 @@ def construct_pipeline(configuration):
     around, they should probably just be removed.
     """
 
+    print(f'Pipeline starting as \'{parameters["configuration"]}\'')
+
     # Alsa device selection
     # The primary entry is used for 'left', 'right', 'mono' and 'stereo_40' (anything but 'stereo')
     # Default Alsa device if left empty, use 'device=hw:X' to select a specific device instead
-    primary = ''
+    primary = 'device=hw:0'
     # The secondary entry is the second output alsa device used when running in 'stereo'.
     # Modify to use the correct second soundcard.
     secondary = 'device=hw:X'
 
+    loudness_element = ''
+    if parameters['loudness'] == 'on':
+        loudness_element = f'level name=loudness peak-falloff=12 peak-ttl={1 * NS_IN_SEC} !'
+
+    source = f'alsasrc {primary}'
+    if parameters['test_source'] == 'on':
+        source = f'audiotestsrc freq=1000.0 ! volume name=testvolume volume=0.1'
+
     # Input Alsa device is always the primary from above.
-    input = (f'alsasrc {primary} ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
-             f'queue ! ')
+    input = (f'{source} ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
+             f'{loudness_element} queue ! ')
+
+    configuration = Configuration[parameters['configuration'].upper()]
 
     if configuration in (Configuration.LEFT, Configuration.RIGHT):
         # pick which of the two input channels to play (src_0 or src_1) if part of a stereo setup
@@ -74,13 +161,17 @@ def construct_pipeline(configuration):
     for path in range(len(paths)):
         interleave_element = 0
 
+        woofer_protect_element = ''
+        if parameters['woofer_protect'] == 'on':
+            woofer_protect_element = f'level name=woofer_protect{path} ! '
+
         if not path or (configuration == Configuration.STEREO):
             if path and (configuration == Configuration.STEREO):
                 interleave_element = 1
 
             output = (f'interleave name=i{interleave_element} ! '
                       f'audioconvert ! audioresample ! queue ! '
-                      f'volume name=master_vol{path} volume=0.01 ! '
+                      f'{woofer_protect_element} '
                       f'alsasink name=alsasink{path} {alsa_devices[path]} ')
 
             launch += output
@@ -111,30 +202,56 @@ def construct_pipeline(configuration):
     # Python bindings refuses to run with caps in double quotes (!?)
     pipeline = Gst.parse_launch(launch.replace('"', ''))
 
-    pipeline.set_state(Gst.State.PLAYING)
+    if parameters['woofer_protect'] == 'on' or parameters['loudness'] == 'on':
+        bus = pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.enable_sync_message_emission()
+        bus.connect('message::element', bus_message)
+
+    print((f' - woofer protection: {parameters["woofer_protect"]}, loudness: {parameters["loudness"]}, '
+           f'test source: {parameters["test_source"]}'))
 
     return pipeline
 
 
 def reload(parameters):
+    global gst_pipeline, woofer_protect_threshold, loudness_low_threshold, loudness_high_threshold, verbose
     """
     There is no sanity checking so you get what you ask for. Lookup the documentation
     for the gstreamer elements if in doubt about what sane values could look like.
     Keep master volume above 0.001 or the pipeline will stop (!?).
     """
-    global current_parameters
+    global current_parameters, gst_pipeline
 
     print('reloading parameters')
+
+    woofer_protect_threshold = parameters['woofer_protect_threshold']
+    loudness_low_threshold = parameters['loudness_low_threshold']
+    loudness_high_threshold = parameters['loudness_high_threshold']
+    verbose = parameters['test_verbose']
+
+    restart_pipeline = False
+
+    if (not current_parameters or
+        parameters['woofer_protect'] != current_parameters['woofer_protect'] or
+        parameters['loudness'] != current_parameters['loudness'] or
+        parameters['test_source'] != current_parameters['test_source'] or
+        parameters['configuration'] != current_parameters['configuration']):
+        restart_pipeline = True
+
+    if restart_pipeline or not gst_pipeline:
+        if gst_pipeline:
+            gst_pipeline.set_state(Gst.State.NULL)
+        gst_pipeline = construct_pipeline(parameters)
+
     modified = dict(parameters.items() - current_parameters.items())
+
     for key, value in sorted(modified.items()):
+
         for path in [Configuration.LEFT.value, Configuration.RIGHT.value]:
             try:
-                # Common output volume
-                if key == 'volume':
-                    gst_pipeline.get_by_name(f'master_vol{path}').set_property('volume', value)
-
                 # Bass crossover, equalizer and volume.
-                elif key == 'low_frequency':
+                if key == 'low_frequency':
                     gst_pipeline.get_by_name(f'low_xover{path}').set_property('cutoff', value)
                 elif key == 'low_order':
                     gst_pipeline.get_by_name(f'low_xover{path}').set_property('poles', value)
@@ -156,12 +273,9 @@ def reload(parameters):
                     gst_pipeline.get_by_name(f'high_vol{path}').set_property('volume', value)
                 elif key == 'buffer-time':
                     gst_pipeline.get_by_name(f'alsasink{path}').set_property('buffer-time', value)
-                elif key == 'configuration':
-                    if current_parameters:
-                        print(' - if that was a configuration mode change then please restart the script')
-                    continue
+                elif key == 'test_volume':
+                    gst_pipeline.get_by_name(f'testvolume').set_property('volume', value)
                 else:
-                    print(f' - error, unknown key {key}')
                     continue
 
                 print(f' - setting {key} (channel {path}) to {value}')
@@ -171,37 +285,37 @@ def reload(parameters):
 
     current_parameters = parameters
 
+    if gst_pipeline.get_state(Gst.CLOCK_TIME_NONE) != Gst.State.PLAYING:
+        gst_pipeline.set_state(Gst.State.PLAYING)
+        error_message = gst_pipeline.get_bus().pop_filtered(Gst.MessageType.ERROR)
+        if error_message:
+            err, msg = error_message.parse_error()
+            print(f'\nFatal error: \n{err}\n\n{msg}\n')
+            exit(1)
+
 
 def parameter_file_watcher():
     """
     Dynamically reloads the parameter file whenever its modified time changes
     """
-    try:
-
-        mtime = None
-        while True:
-            _ = os.path.getmtime(parameter_file)
-            if _ != mtime:
-                mtime = _
-                with open(parameter_file) as f:
-                    reload(json.loads(f.read()))
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print(' killed')
-        exit(1)
+    mtime = None
+    while True:
+        _ = os.path.getmtime(parameter_file)
+        if _ != mtime:
+            mtime = _
+            with open(parameter_file) as f:
+                reload(json.loads(f.read()))
+        time.sleep(1)
 
 
-with open(parameter_file) as f:
-    conf = json.loads(f.read())['configuration']
-    print(f'Two way crossover is starting as \'{conf}\'')
-    gst_pipeline = construct_pipeline(Configuration[conf.upper()])
-    error_message = gst_pipeline.get_bus().pop_filtered(Gst.MessageType.ERROR)
-    if error_message:
-        err, msg = error_message.parse_error()
-        print(f'\nFatal error: \n{err}\n\n{msg}\n')
-        exit(1)
+def ctrl_c_handler(_, __):
+    print(' ctrl-c handler')
+    os._exit(1)
+
+
+signal.signal(signal.SIGINT, ctrl_c_handler)
 
 parameter_file_watcher_thread = threading.Thread(target=parameter_file_watcher)
-parameter_file_watcher_thread.run()
+parameter_file_watcher_thread.start()
 
 GLib.MainLoop().run()

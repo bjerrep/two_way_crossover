@@ -1,7 +1,6 @@
 {
   "configuration": "mono",
   "buffer-time": 10000,
-  "volume" : 0.01,
   "low_frequency": 2000.0,
   "low_volume": 1.0,
   "low_order": 8,
@@ -10,5 +9,15 @@
   "low_eq_119Hz" : 0.0,
   "high_frequency": 2000.0,
   "high_volume": 1.0,
-  "high_order": 8
+  "high_order": 8,
+
+  "woofer_protect": "off",
+  "woofer_protect_threshold": -10.0,
+  "loudness": "off",
+  "loudness_low_threshold": -30.0,
+  "loudness_high_threshold": -10.0,
+  "test_source": "off",
+  "test_frequency": 1000.0,
+  "test_volume": 0.001,
+  "test_verbose": "on"
 }

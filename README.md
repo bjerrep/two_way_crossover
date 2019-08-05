@@ -56,12 +56,23 @@ There is a template for a systemd service file in ./systemd that might be of hel
 
 The overall configuration can be set to 'left', 'right', 'mono', 'stereo' or 'stereo_40'. The plain 'stereo' mode is using two separate soundcards for left and right and the 'stereo_40' mode is using two outputs on a single 5.1 or 7.1 soundcard for left and right. 'stereo_40' might need some tweaking of the gstreamer pipeline. The current values matches a logilink UA0099 soundcard where channel 5 & 6 plays in the 'surround' channel on the UA0099. Whatever the mode gstreamer/Alsa seems to get it right and there is no need to e.g. use surround profiles in .asoundrc.
 
-The mode and the central adjustable parameters are found in the configuration file two_way_crossover.json. The configuration file is automatically reloaded and applied when modified (except for mode changes). There is no reason to restart the python script as long as it is only the numeric values that are changed.
+The mode and the central adjustable parameters are found in the configuration file two_way_crossover.json. The configuration file is automatically reloaded and applied when modified. There should be no reason to restart the python script unless the script itself is modified.
 
 Here is an image of what a 'stereo' crossover filter with a RPI 3B+ could look like. Since it is using two 5.1 soundcards the picture was taken before there was a 'stereo_40' mode which could have driven a stereo setup with just a single 5.1 soundcard...
 
 <p align="center"><img src="images/stereo.jpg"></p>
 
+## Loudness and protection
+
+There are some very experimental implementations of a loudness control and a woofer protection. Unless you intend to dig into the script and work on the implementations the advise is to leave them both off for now. Neither have been used in real life which certainly will bring adjustments.
+
+### Loudness
+
+The loudness decreases the amount of basslift as the signal increases (so it actually isn't a real loudness from just fiddling with the basslift). Ideally a loudness control would track the current volume setting/sound pressure level but since we have no idea what that is it will have to monitor the actual signal level instead. This is problematic since the loudness will now adjust according to the ups and downs in the signal itself which is by all accounts a terrible idea. So it might not be for every ones taste. The current setup tries to be very gentle and while that sounds nice it also means that it adapts rather slowly in the situation where the volume is decreased while it at the same time will start adjusting the loudness level in the quiet periods say between songs.
+
+### Woofer protect
+
+This uses signal levels reported by a level element for decreasing the bass lift whenever the signal level exceed the absolute value _protection_threshold_. This is done in an attempt to protect the woofer from operating above its maximum cone excursion or overheat. It measures the level right before the output so it will depend both on the input signal and any gain in the bass lift section itself. Since the level where to start protecting depends on the gain in the power amplifier and offcourse the speaker unit itself trial and error will have to be used to find the correct value for the _protection_threshold_ level.
 
 # Caveats
 
