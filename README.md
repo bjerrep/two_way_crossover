@@ -62,6 +62,10 @@ Here is an image of what a 'stereo' crossover filter with a RPI 3B+ could look l
 
 <p align="center"><img src="images/stereo.jpg"></p>
 
+## Signal generator
+
+It is possible to replace the normal analog Alsa input with a built-in sine tonegenerator by setting _test_source_ to on in the configuration file. Be very cautious that the volume is turned way down each time the tonegenerator is enabled to avoid acoustic shock or at perhaps just an ordinary shock...
+
 ## Loudness and protection
 
 There are some very experimental implementations of a loudness control and a woofer protection. Unless you intend to dig into the script and work on the implementations the advise is to leave them both off for now. Neither have been used in real life which certainly will bring adjustments.
@@ -88,7 +92,7 @@ Outputting 4 channels to a single 5.1 soundcard in 'stereo_40' mode doesn't seem
 
 **RPI**
 
-Performance issues ranges from pure noise output (RPI 1B in standard configuration) to occasional ticks. Following is an accumulated list of tweaks tried. Most likely one or more could be removed without having any noticable effect and the killer tweak might still waiting for someone to find it. 
+Performance issues ranges from pure noise output (RPI 1B in standard configuration) to occasional ticks. Following is an accumulated list of tweaks tried. Most likely one or more could be removed without having any noticable effect and the killer tweak might still waiting for someone to find it.
 
 The complete list is what is used for the RPI 1B including the script [rpi_1B_boot.sh](systemd/rpi_1B_boot.sh) in ./systemd.
 
@@ -102,13 +106,9 @@ The complete list is what is used for the RPI 1B including the script [rpi_1B_bo
     core_freq=500
     sdram_freq=400
 
-**3** Add dwc_otg.speed=1 to /boot/cmdline.txt. Forces USB to run at a fixed 12Mb/sec.
+**3** Add dwc_otg.speed=1 to /boot/cmdline.txt. Forces USB to run at a fixed 12Mb/sec. So far it seems that this should probably always be done unless ofcource it interferes with other attached USB devices.
 
 **4** Turn off systemd-journald writing to disk. Storage=none in /etc/systemd/journald.conf. Disable haveged now we are at it with systemctl disable haveged.
-
-**5** Run the script with realtime priority. 
-
-\# chrt --rr 99 /usr/bin/python <path\>/two_way_crossover.py
 
 
 

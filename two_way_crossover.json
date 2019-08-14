@@ -1,6 +1,6 @@
 {
   "configuration": "mono",
-  "buffer-time": 10000,
+  "buffer-time": 1000,
   "low_frequency": 2000.0,
   "low_volume": 1.0,
   "low_order": 8,

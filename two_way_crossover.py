@@ -39,7 +39,7 @@ def eq_adjust():
 
     for band in range(3):
         max = current_parameters[eq[band]]
-        min = -6.0
+        min = 0.0
         gain_dB = (max - min) * (loudness_x20 / 20.0) + min
         gain_dB -= woofer_protect_attenuation_db_x10 / 10.0
         if gain_dB < -24.0:
@@ -114,11 +114,11 @@ def construct_pipeline(parameters):
 
     loudness_element = ''
     if parameters['loudness'] == 'on':
-        loudness_element = f'level name=loudness peak-falloff=12 peak-ttl={1 * NS_IN_SEC} !'
+        loudness_element = f'level name=loudness peak-falloff=3 peak-ttl={3 * NS_IN_SEC} !'
 
     source = f'alsasrc {primary}'
     if parameters['test_source'] == 'on':
-        source = f'audiotestsrc freq=1000.0 ! volume name=testvolume volume=0.1'
+        source = f'audiotestsrc name=testsource freq=1000.0 ! volume name=testvolume volume=0.1'
 
     # Input Alsa device is always the primary from above.
     input = (f'{source} ! audioconvert ! audio/x-raw,format=F32LE,channels=2 ! '
@@ -172,7 +172,8 @@ def construct_pipeline(parameters):
             output = (f'interleave name=i{interleave_element} ! '
                       f'audioconvert ! audioresample ! queue ! '
                       f'{woofer_protect_element} '
-                      f'alsasink name=alsasink{path} {alsa_devices[path]} ')
+                      f'alsasink name=alsasink{path} {alsa_devices[path]} '
+                      f'sync=true buffer-time={parameters["buffer-time"]} ')
 
             launch += output
 
@@ -236,6 +237,7 @@ def reload(parameters):
         parameters['woofer_protect'] != current_parameters['woofer_protect'] or
         parameters['loudness'] != current_parameters['loudness'] or
         parameters['test_source'] != current_parameters['test_source'] or
+        parameters['buffer-time'] != current_parameters['buffer-time'] or
         parameters['configuration'] != current_parameters['configuration']):
         restart_pipeline = True
 
@@ -272,9 +274,12 @@ def reload(parameters):
                 elif key == 'high_volume':
                     gst_pipeline.get_by_name(f'high_vol{path}').set_property('volume', value)
                 elif key == 'buffer-time':
-                    gst_pipeline.get_by_name(f'alsasink{path}').set_property('buffer-time', value)
+                    # will have forced a pipeline restart above with the new value. Can't be changed while running ?
+                    continue
                 elif key == 'test_volume':
                     gst_pipeline.get_by_name(f'testvolume').set_property('volume', value)
+                elif key == 'test_frequency':
+                    gst_pipeline.get_by_name(f'testsource').set_property('freq', value)
                 else:
                     continue
 
