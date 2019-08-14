@@ -81,7 +81,8 @@ def construct_pipeline(configuration):
             output = (f'interleave name=i{interleave_element} ! '
                       f'audioconvert ! audioresample ! queue ! '
                       f'volume name=master_vol{path} volume=0.01 ! '
-                      f'alsasink name=alsasink{path} {alsa_devices[path]} ')
+                      f'alsasink name=alsasink{path} {alsa_devices[path]} '
+                      f'sync=true buffer-time=1000 ')
 
             launch += output
 
