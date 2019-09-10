@@ -116,3 +116,5 @@ The complete list is what is used for the RPI 1B including the script [rpi_1B_bo
 
 [Pulseaudio Crossover Rack](https://t-5.eu/hp/Software/Pulseaudio%20Crossover%20Rack)
 
+[Low latency audio on raspberry pi](https://wiki.linuxaudio.org/wiki/raspberrypi)
+
