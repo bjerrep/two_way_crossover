@@ -8,6 +8,9 @@
 [Unit]
 Description=two way crossover
 
+[Install]
+WantedBy=multi-user.target
+
 [Service]
 Type=simple
 User=root
