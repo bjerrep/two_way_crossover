@@ -66,6 +66,10 @@ Here is an image of what a 'stereo' crossover filter with a RPI 3B+ could look l
 
 It is possible to replace the normal analog Alsa input with a built-in sine tonegenerator by setting _test_source_ to on in the configuration file. Be very cautious that the volume is turned way down each time the tonegenerator is enabled to avoid acoustic shock or at perhaps just an ordinary shock...
 
+## Amplifier enable
+
+If rpi.gpio is available then a gpio pin (default GPIO15) can be used as enable signal for the power amplifier(s). There will be the mandatory fiddling around for setting the right signal detection threshold and for determining a non-annoying idle time before the enable signal is released.
+
 ## Loudness and protection
 
 There are some very experimental implementations of a loudness control and a woofer protection. Unless you intend to dig into the script and work on the implementations the advise is to leave them both off for now. Neither have been used in real life which certainly will bring adjustments.
