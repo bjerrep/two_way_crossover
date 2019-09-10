@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from enum import Enum
 import threading, time, gi, os, json, signal
+import amplifierenable
 
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
@@ -68,6 +69,9 @@ def bus_message(bus, message):
                 if level > max_level:
                     max_level = level
 
+            if max_level > -35.0:
+                amplifierenable.signal()
+
             if message.src.get_name().startswith('woofer_protect'):
                 exceed_x10 = int((max_level - woofer_protect_threshold) * 10.0)
                 if exceed_x10 < 0:
@@ -112,9 +116,9 @@ def construct_pipeline(parameters):
     # Modify to use the correct second soundcard.
     secondary = 'device=hw:X'
 
-    loudness_element = ''
-    if parameters['loudness'] == 'on':
-        loudness_element = f'level name=loudness peak-falloff=3 peak-ttl={3 * NS_IN_SEC} !'
+    #loudness_element = ''
+    #if parameters['loudness'] == 'on':
+    loudness_element = f'level name=loudness peak-falloff=3 peak-ttl={3 * NS_IN_SEC} !'
 
     source = f'alsasrc {primary}'
     if parameters['test_source'] == 'on':
